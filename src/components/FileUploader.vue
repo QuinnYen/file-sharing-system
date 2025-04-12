@@ -47,8 +47,8 @@
 </template>
 
 <script>
-// 引入新的 S3 服務
-import s3Service from '@/services/s3-service-amplify';
+// 引用路徑
+import s3Service from '@/services/s3-service-direct';
 
 export default {
   name: 'FileUploader',
