@@ -47,7 +47,8 @@
 </template>
 
 <script>
-import s3Service from '@/services/s3-service';
+// 引入新的 S3 服務
+import s3Service from '@/services/s3-service-amplify';
 
 export default {
   name: 'FileUploader',

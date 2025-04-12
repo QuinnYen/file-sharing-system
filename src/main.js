@@ -2,6 +2,7 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
+import './amplify' // 引入 Amplify 配置
 
 // 創建 Vue 應用
 const app = createApp(App)
