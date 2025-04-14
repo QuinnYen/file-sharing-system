@@ -2,12 +2,20 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
+import { Amplify } from 'aws-amplify'
+import authService from './services/auth-service'
+
+// 初始化 Amplify
+Amplify.configure(authService.getConfig());
 
 // 創建 Vue 應用
 const app = createApp(App)
 
 // 使用路由
 app.use(router)
+
+// 添加全局身份驗證方法
+app.config.globalProperties.$auth = authService;
 
 // 掛載應用
 app.mount('#app')

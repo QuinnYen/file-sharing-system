@@ -8,6 +8,33 @@
       <div class="navbar-menu">
         <router-link to="/" class="nav-item">首頁</router-link>
         <router-link to="/about" class="nav-item">關於</router-link>
+        
+        <!-- 未登入用戶顯示登入按鈕 -->
+        <router-link 
+          v-if="!authState.isAuthenticated" 
+          to="/login" 
+          class="nav-item login-btn"
+        >
+          登入
+        </router-link>
+        
+        <!-- 已登入用戶顯示用戶功能表 -->
+        <div v-else class="user-menu">
+          <div class="user-menu-trigger" @click="toggleUserMenu">
+            <span>{{ userEmail }}</span>
+            <i class="fas fa-chevron-down"></i>
+          </div>
+          
+          <div class="user-menu-dropdown" v-if="showUserMenu">
+            <router-link to="/profile" class="dropdown-item">
+              <i class="fas fa-user"></i> 個人資料
+            </router-link>
+            <div class="dropdown-divider"></div>
+            <a href="#" class="dropdown-item" @click.prevent="handleLogout">
+              <i class="fas fa-sign-out-alt"></i> 登出
+            </a>
+          </div>
+        </div>
       </div>
     </nav>
 
@@ -20,8 +47,46 @@
 </template>
 
 <script>
+import authState from './services/auth-state';
+
 export default {
-  name: 'App'
+  name: 'App',
+  data() {
+    return {
+      showUserMenu: false
+    };
+  },
+  computed: {
+    authState() {
+      return authState.state;
+    },
+    userEmail() {
+      return this.authState.userInfo?.email || '用戶';
+    }
+  },
+  methods: {
+    toggleUserMenu() {
+      this.showUserMenu = !this.showUserMenu;
+    },
+    async handleLogout() {
+      try {
+        await authState.signOut();
+        this.showUserMenu = false;
+        this.$router.push('/login');
+      } catch (error) {
+        console.error('登出失敗', error);
+      }
+    }
+  },
+  created() {
+    // 點擊其他地方關閉用戶選單
+    document.addEventListener('click', (event) => {
+      const userMenu = this.$el.querySelector('.user-menu');
+      if (userMenu && !userMenu.contains(event.target)) {
+        this.showUserMenu = false;
+      }
+    });
+  }
 }
 </script>
 
@@ -68,6 +133,7 @@ button {
 .navbar-menu {
   display: flex;
   gap: 1.5rem;
+  align-items: center;
 }
 
 .nav-item {
@@ -83,6 +149,64 @@ button {
 .router-link-active {
   font-weight: bold;
   background-color: rgba(255, 255, 255, 0.2);
+}
+
+.login-btn {
+  background-color: rgba(255, 255, 255, 0.2);
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-weight: bold;
+}
+
+/* 用戶選單 */
+.user-menu {
+  position: relative;
+}
+
+.user-menu-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.3s;
+}
+
+.user-menu-trigger:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.user-menu-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background-color: white;
+  border-radius: 4px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  min-width: 200px;
+  z-index: 100;
+  margin-top: 0.5rem;
+  overflow: hidden;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  color: #333;
+  transition: background-color 0.3s;
+}
+
+.dropdown-item:hover {
+  background-color: #f5f5f5;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background-color: #e0e0e0;
+  margin: 0.5rem 0;
 }
 
 /* 頁腳 */
