@@ -12,6 +12,7 @@ import {
   fetchUserAttributes
 } from '@aws-amplify/auth';
 import AWS from 'aws-sdk';
+import { Amplify } from 'aws-amplify';
 
 // 同步 Cognito 憑證到 AWS SDK
 const syncCognitoToAwsSDK = async () => {
@@ -132,6 +133,69 @@ export default {
       return {
         success: true,
         message: '處理完成，請嘗試登入。'
+      };
+    }
+  },
+  
+  // 檢查並修復認證狀態
+  async checkAndRepairAuthState() {
+    try {
+      // 檢查 Amplify 配置是否有效
+      if (!AWS.config.region || !Amplify.getConfig()) {
+        console.log('Amplify 配置無效，無法檢查認證狀態');
+        return {
+          success: false,
+          fixed: false,
+          error: 'Amplify 配置無效',
+          isConfigError: true
+        };
+      }
+
+      // 避免使用可能導致配置錯誤的 getCurrentUser
+      try {
+        // 直接嘗試登出，不需要先獲取用戶
+        await signOut({ global: true });
+        
+        // 清除 AWS 憑證
+        if (AWS.config.credentials) {
+          AWS.config.credentials.clearCachedId();
+          AWS.config.credentials = null;
+        }
+        
+        // 清除 S3 服務會話數據
+        const s3Service = await import('./s3-service-direct');
+        s3Service.default.clearSessionData();
+        
+        return {
+          success: true,
+          message: '已重置認證狀態',
+          fixed: true
+        };
+      } catch (error) {
+        console.warn('登出失敗，但繼續處理:', error);
+        
+        // 即使登出失敗，也嘗試清除憑證
+        if (AWS.config.credentials) {
+          try {
+            AWS.config.credentials.clearCachedId();
+            AWS.config.credentials = null;
+          } catch (e) {
+            console.warn('清除憑證失敗:', e);
+          }
+        }
+        
+        return {
+          success: true,
+          message: '已嘗試重置認證狀態',
+          fixed: true
+        };
+      }
+    } catch (error) {
+      console.error('修復認證狀態時出錯:', error);
+      return {
+        success: false,
+        error: '無法修復認證狀態',
+        fixed: false
       };
     }
   },

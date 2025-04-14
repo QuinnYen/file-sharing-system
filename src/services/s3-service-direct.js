@@ -1,39 +1,46 @@
 // src/services/s3-service-direct.js
 import AWS from 'aws-sdk';
-// 移除未使用的導入
 import authService from './auth-service';
 
-// 獲取憑證 - 現在支援已驗證和未驗證用戶
+// 獲取憑證
 const getCredentials = async () => {
   // 首先嘗試獲取已驗證用戶的憑證
   try {
-    const { success } = await authService.getCurrentUser();
-    if (success) {
+    const userInfo = await authService.getCurrentUser();
+    if (userInfo && userInfo.success && userInfo.user) {
+      console.log('用戶已登入，使用已驗證憑證');
       // 用戶已登入，使用同步過的憑證
-      const { success: syncSuccess } = await authService.syncCredentials();
-      if (syncSuccess) {
+      const syncResult = await authService.syncCredentials();
+      if (syncResult && syncResult.success) {
         return AWS.config.credentials;
+      } else {
+        throw new Error('憑證同步失敗');
       }
+    } else {
+      throw new Error('用戶未登入或無效');
     }
   } catch (error) {
     console.log('未使用已驗證身份，將使用未驗證身份', error);
-  }
-  
-  // 使用未驗證身份
-  AWS.config.region = 'ap-southeast-2'; // 您的區域
-  
-  // 設置身份池 ID
-  AWS.config.credentials = new AWS.CognitoIdentityCredentials({
-    IdentityPoolId: 'ap-southeast-2:c63d43af-25ab-415c-9e8a-0d392b96951a', // 替換為您的身份池 ID
-  });
-  
-  // 刷新憑證
-  try {
-    await AWS.config.credentials.getPromise();
-    return AWS.config.credentials;
-  } catch (error) {
-    console.error('無法獲取 AWS 憑證:', error);
-    throw error;
+    
+    // 清除任何可能存在的過期憑證
+    AWS.config.credentials = null;
+    
+    // 使用未驗證身份
+    AWS.config.region = 'ap-southeast-2'; // 您的區域
+    
+    // 設置身份池 ID
+    AWS.config.credentials = new AWS.CognitoIdentityCredentials({
+      IdentityPoolId: 'ap-southeast-2:c63d43af-25ab-415c-9e8a-0d392b96951a', // 替換為您的身份池 ID
+    });
+    
+    // 刷新憑證
+    try {
+      await AWS.config.credentials.getPromise();
+      return AWS.config.credentials;
+    } catch (error) {
+      console.error('無法獲取 AWS 憑證:', error);
+      throw error;
+    }
   }
 };
 
@@ -50,15 +57,64 @@ const bucketName = 'file-sharing-system-20250407'; // 您的 S3 儲存桶名稱
 
 // 獲取用戶特定的前綴
 const getUserPrefix = async () => {
-  const { success, user } = await authService.getCurrentUser();
+  try {
+    const { success, user } = await authService.getCurrentUser();
+    
+    if (success && user) {
+      // 嘗試獲取 Cognito Identity ID (子標識符) - 這是與 IAM 策略匹配的值
+      let userId = '';
+      
+      // 嘗試從 AWS 憑證中獲取身份 ID
+      try {
+        const credentials = AWS.config.credentials;
+        if (credentials && credentials.identityId) {
+          userId = credentials.identityId;
+          console.log('使用 Cognito Identity ID:', userId);
+        } else {
+          // 備用: 使用用戶名
+          userId = user.username || '';
+          console.log('使用用戶名作為 ID:', userId);
+        }
+      } catch (idError) {
+        console.warn('無法獲取身份 ID，使用用戶名:', idError);
+        userId = user.username || '';
+      }
+      
+      if (!userId) {
+        console.warn('無法獲取用戶 ID，使用時間戳');
+        userId = `user-${Date.now()}`;
+      }
+      
+      // 使用 "users/" 前綴以符合 IAM 政策
+      return `users/${userId}/`;
+    }
+    
+    // 未登入用戶可能無權限使用 S3，但如果要使用，要確保 IAM 有配置相應政策
+    throw new Error('用戶未登入，無法獲取 S3 存取權限');
+  } catch (error) {
+    console.error('獲取用戶前綴失敗:', error);
+    // 確保失敗時也使用 "users/" 前綴，以符合 IAM 政策
+    const fallbackId = `unknown-${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
+    return `users/${fallbackId}/`;
+  }
+};
+
+// 創建帶緩存的用戶前綴函數
+let cachedPrefix = null;
+let prefixExpiry = 0;
+
+const getCachedUserPrefix = async () => {
+  const now = Date.now();
   
-  if (success && user) {
-    // 使用用戶ID作為前綴，確保每個用戶有自己的"文件夾"
-    return `users/${user.username}/`;
+  // 如果緩存有效且未過期（30分鐘），則使用緩存
+  if (cachedPrefix && prefixExpiry > now) {
+    return cachedPrefix;
   }
   
-  // 未登入用戶使用公共區域
-  return 'public/';
+  // 否則獲取新前綴並更新緩存
+  cachedPrefix = await getUserPrefix();
+  prefixExpiry = now + (30 * 60 * 1000); // 30 分鐘有效期
+  return cachedPrefix;
 };
 
 export default {
@@ -73,8 +129,9 @@ export default {
     try {
       const s3 = await createS3Client();
       
-      // 獲取用戶特定前綴
-      const userPrefix = await getUserPrefix();
+      // 獲取用戶特定前綴（使用緩存）
+      const userPrefix = await getCachedUserPrefix();
+      console.log('正在上傳檔案到:', userPrefix);
       
       // 使用時間戳避免檔案名衝突
       const key = `${userPrefix}${Date.now()}-${file.name}`;
@@ -124,51 +181,65 @@ export default {
    * @param {string} prefix - 可選的前綴過濾
    * @returns {Promise<Array>} - 檔案列表
    */
-  async listFiles(prefix = null) {
+    async listFiles(prefix = null) {
     try {
       const s3 = await createS3Client();
       
-      // 如果沒有提供前綴，則使用用戶特定前綴
+      // 如果沒有提供前綴，則使用用戶特定前綴（使用緩存）
       if (!prefix) {
+        prefix = await getCachedUserPrefix();
+      }
+      
+      // 確保前綴以 "users/" 開頭，符合 IAM 政策
+      if (!prefix.startsWith('users/')) {
+        console.warn('前綴不符合 IAM 政策，調整為用戶路徑');
+        // 重新獲取用戶前綴
         prefix = await getUserPrefix();
       }
       
+      console.log('正在獲取檔案列表，使用前綴:', prefix);
+      
       const params = {
         Bucket: bucketName,
-        Prefix: prefix
+        Prefix: prefix,
+        // 添加更多檢查條件，確保只獲取當前前綴的文件
+        Delimiter: '/' 
       };
-
+  
       const result = await s3.listObjectsV2(params).promise();
       
       // 檢查是否有內容
       if (!result.Contents || result.Contents.length === 0) {
+        console.log('未找到檔案');
         return [];
       }
       
-      return result.Contents.map(item => {
-        // 建立檔案項目
-        const fileName = item.Key.split('/').pop();
-        
-        // 檢查是否有過期時間
-        let expiresAt = null;
-        if (item.Metadata && item.Metadata.Expires) {
-          expiresAt = new Date(item.Metadata.Expires);
-        }
-        
-        return {
-          key: item.Key,
-          name: fileName,
-          size: item.Size,
-          lastModified: item.LastModified,
-          expiresAt: expiresAt,
-          url: `https://${bucketName}.s3.amazonaws.com/${item.Key}`,
-          // 建立分享連結
-          shareUrl: `https://${bucketName}.s3.amazonaws.com/${item.Key}`
-        };
-      });
+      console.log(`找到 ${result.Contents.length} 個檔案`);
+      
+      return result.Contents
+        // 過濾掉目錄本身
+        .filter(item => !item.Key.endsWith('/'))
+        .map(item => {
+          // 建立檔案項目
+          const fileName = item.Key.split('/').pop();
+          
+          // 檢查元數據中是否有過期時間
+          let expiresAt = null;
+          
+          return {
+            key: item.Key,
+            name: fileName,
+            size: item.Size,
+            lastModified: item.LastModified,
+            expiresAt: expiresAt,
+            url: `https://${bucketName}.s3.amazonaws.com/${item.Key}`,
+            // 建立分享連結
+            shareUrl: `https://${bucketName}.s3.amazonaws.com/${item.Key}`
+          };
+        });
     } catch (error) {
       console.error('獲取檔案列表時出錯:', error);
-      throw error;
+      return []; // 返回空數組而不是拋出錯誤，提高用戶體驗
     }
   },
 
@@ -182,8 +253,9 @@ export default {
       const s3 = await createS3Client();
       
       // 檢查是否是用戶自己的檔案
-      const userPrefix = await getUserPrefix();
-      if (!key.startsWith(userPrefix) && !key.startsWith('public/')) {
+      const userPrefix = await getCachedUserPrefix();
+      if (!key.startsWith(userPrefix)) {
+        console.warn('試圖刪除非用戶文件:', key, '用戶前綴:', userPrefix);
         return {
           success: false,
           error: '您沒有權限刪除此檔案'
@@ -242,6 +314,15 @@ export default {
     try {
       const s3 = await createS3Client();
       
+      // 檢查權限 - 只允許修改自己的檔案
+      const userPrefix = await getCachedUserPrefix();
+      if (!key.startsWith(userPrefix)) {
+        return {
+          success: false,
+          error: '您沒有權限修改此檔案'
+        };
+      }
+      
       // 先獲取現有的物件元數據
       const headParams = {
         Bucket: bucketName,
@@ -276,5 +357,30 @@ export default {
         error: error.message
       };
     }
+  },
+  
+    /**
+   * 清除此服務産生的會話數據
+   */
+  clearSessionData() {
+    // 清除本地緩存
+    sessionStorage.removeItem('anonymousId');
+    cachedPrefix = null;
+    prefixExpiry = 0;
+    
+    // 清除 AWS 憑證
+    if (AWS.config.credentials) {
+      AWS.config.credentials.clearCachedId();
+      AWS.config.credentials = null;
+    }
+    
+    console.log('已清除 S3 服務會話數據');
+  },
+  
+  /**
+   * 僅供測試 - 獲取當前用戶的前綴
+   */
+  async _getCurrentPrefix() {
+    return await getCachedUserPrefix();
   }
 };

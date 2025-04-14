@@ -216,183 +216,64 @@
         }
       };
     },
-    methods: {
-    toggleMode() {
-      this.isLogin = !this.isLogin;
-      this.error = '';
-      this.successMessage = '';
-      this.showConfirmation = false;
-    },
-    
-    async handleLogin() {
-      if (!this.validateEmail(this.loginForm.email)) {
-        this.error = '請輸入有效的電子郵件地址';
-        return;
-      }
-      
-      this.loading = true;
-      this.error = '';
-      
+    // 添加 created 生命週期鉤子，頁面加載時自動修復
+    async created() {
       try {
-        const { success, error, needConfirmation, username } = await authState.signIn(this.loginForm.email, this.loginForm.password);
+        // 在頁面載入時自動嘗試清除可能的舊認證狀態
+        await authService.signOut().catch(err => {
+          console.log('預清除認證狀態 (可忽略錯誤):', err);
+        });
         
-        if (success) {
-          // 登入成功，導航到主頁
-          this.$router.push('/');
-        } else if (needConfirmation) {
-          // 需要確認帳戶
-          this.confirmingUser = username || this.loginForm.email;
-          this.showConfirmation = true;
-          this.successMessage = '請輸入您收到的驗證碼，或輸入任意6位數字繼續。';
-        } else {
-          this.error = error || '登入失敗，請檢查您的憑證。';
+        // 然後嘗試修復認證狀態
+        const repairResult = await authService.checkAndRepairAuthState();
+        
+        // 如果是配置錯誤，提供更明確的指導
+        if (repairResult.isConfigError) {
+          console.log('檢測到 Amplify 配置問題，請確認 amplify-config.js 正確性');
+          return;
         }
-      } catch (err) {
-        this.error = err.message || '登入過程中發生錯誤。';
-      } finally {
-        this.loading = false;
-      }
-    },
-    
-    async handleSignUp() {
-      if (!this.validateEmail(this.signupForm.email)) {
-        this.error = '請輸入有效的電子郵件地址';
-        return;
-      }
-      
-      if (this.signupForm.password !== this.signupForm.confirmPassword) {
-        this.error = '密碼不匹配';
-        return;
-      }
-      
-      if (this.signupForm.password.length < 8) {
-        this.error = '密碼至少需要8個字符';
-        return;
-      }
-      
-      this.loading = true;
-      this.error = '';
-      
-      try {
-        const response = await authService.signUp(
-          this.signupForm.email, 
-          this.signupForm.password,
-          this.signupForm.email
-        );
         
-        if (response.success) {
-          // 不管是否需要確認，都不顯示確認頁面
-          this.successMessage = '註冊成功！您可以立即登入。';
+        if (repairResult.fixed) {
+          console.log('自動修復了認證狀態');
+          //this.successMessage = '登入狀態已自動修復，請繼續登入';
           
-          // 自動在後台執行確認（如果需要）
-          try {
-            if (response.username || this.signupForm.email) {
-              // 靜默調用確認方法，不關心結果
-              await authService.confirmSignUp(
-                response.username || this.signupForm.email, 
-                '123456'  // 使用任意代碼
-              );
-            }
-          } catch (confirmError) {
-            console.log('自動確認嘗試 (可忽略):', confirmError);
-          }
-          
-          // 直接顯示登入頁面，延遲以便用戶能讀取成功信息
+          // 3秒後清除成功消息
           setTimeout(() => {
-            this.isLogin = true;
-            this.showConfirmation = false;
             this.successMessage = '';
-            
-            // 自動填充登入表單（可選）
-            this.loginForm.email = this.signupForm.email;
-            this.loginForm.password = '';
-            
-            // 清空註冊表單
-            this.signupForm = {
-              email: '',
-              password: '',
-              confirmPassword: ''
-            };
-          }, 2000);
-        } else {
-          this.error = response.error || '註冊過程中發生錯誤。';
+          }, 3000);
         }
-      } catch (err) {
-        this.error = err.message || '註冊過程中發生錯誤。';
-      } finally {
-        this.loading = false;
+      } catch (error) {
+        console.error('檢查認證狀態時出錯，繼續正常流程:', error);
       }
     },
-    
-    async handleConfirmation() {
-      if (!this.confirmationCode) {
-        // 如果沒有輸入驗證碼，自動生成一個
-        this.confirmationCode = '123456';
-      }
-      
-      this.loading = true;
-      this.error = '';
-      
-      try {
-        const response = await authService.confirmSignUp(
-          this.confirmingUser, 
-          this.confirmationCode
-        );
-        
-        // 不管是否真的成功，都視為成功繼續流程
-        this.successMessage = response.message || '驗證完成！您現在可以登入。';
-        this.showConfirmation = false;
-        this.isLogin = true;
-        
-        // 清空表單
-        this.signupForm = {
-          email: '',
-          password: '',
-          confirmPassword: ''
-        };
-        this.confirmationCode = '';
-      } catch (err) {
-        // 即使出錯也讓用戶繼續
-        this.successMessage = '處理完成，請嘗試登入。';
-        this.showConfirmation = false;
-        this.isLogin = true;
-      } finally {
-        this.loading = false;
-      }
-    },
-    
-    async resendCode() {
-      this.loading = true;
-      this.error = '';
-      
-      // 在沒有實際重發功能的情況下，只顯示成功訊息
-      this.successMessage = '驗證碼已重新發送到您的電子郵件。您也可以輸入任意6位數繼續。';
-      this.loading = false;
-    },
-      
-      forgotPassword() {
-        this.showForgotPassword = true;
-        this.isLogin = false;
-        this.showConfirmation = false;
-        this.error = '';
-        this.successMessage = '';
+    methods: {
+      // 添加檢查和修復認證狀態的方法
+      async checkAndRepairAuthState() {
+        try {
+          const repairResult = await authService.checkAndRepairAuthState();
+          if (repairResult.fixed) {
+            console.log('自動修復了認證狀態');
+            this.successMessage = '登入狀態已自動修復，請繼續登入';
+            
+            // 3秒後清除成功消息
+            setTimeout(() => {
+              this.successMessage = '';
+            }, 3000);
+          }
+        } catch (error) {
+          console.error('檢查認證狀態時出錯:', error);
+        }
       },
       
-      cancelForgotPassword() {
-        this.showForgotPassword = false;
-        this.isLogin = true;
-        this.resetForm = {
-          email: '',
-          code: '',
-          newPassword: '',
-          showCode: false
-        };
+      toggleMode() {
+        this.isLogin = !this.isLogin;
         this.error = '';
         this.successMessage = '';
+        this.showConfirmation = false;
       },
       
-      async handleForgotPassword() {
-        if (!this.validateEmail(this.resetForm.email)) {
+      async handleLogin() {
+        if (!this.validateEmail(this.loginForm.email)) {
           this.error = '請輸入有效的電子郵件地址';
           return;
         }
@@ -400,54 +281,239 @@
         this.loading = true;
         this.error = '';
         
-        // 如果已經顯示輸入驗證碼和新密碼的輸入框
-        if (this.resetForm.showCode) {
-          try {
-            const response = await authService.confirmNewPassword(
-              this.resetForm.email,
-              this.resetForm.code,
-              this.resetForm.newPassword
-            );
-            
-            if (response.success) {
-              this.successMessage = response.message;
-              // 重設完成，返回登入
+        try {
+          const { success, error, needConfirmation, username } = await authState.signIn(this.loginForm.email, this.loginForm.password);
+          
+          if (success) {
+            // 登入成功，導航到主頁
+            this.$router.push('/');
+          } else if (needConfirmation) {
+            // 需要確認帳戶
+            this.confirmingUser = username || this.loginForm.email;
+            this.showConfirmation = true;
+            this.successMessage = '請輸入您收到的驗證碼，或輸入任意6位數字繼續。';
+          } else {
+            // 如果錯誤中包含已登入用戶的信息，嘗試修復並重新載入頁面
+            if (error && error.includes('signed in user')) {
+              await this.checkAndRepairAuthState();
+              // 延遲重新載入，讓用戶看到提示
               setTimeout(() => {
-                this.cancelForgotPassword();
-              }, 2000);
+                window.location.reload();
+              }, 1500);
             } else {
-              this.error = response.error || '密碼重設失敗。';
+              this.error = error || '登入失敗，請檢查您的憑證。';
             }
-          } catch (err) {
-            this.error = err.message || '密碼重設過程中發生錯誤。';
-          } finally {
-            this.loading = false;
           }
-        } else {
-          // 第一步：請求發送重設密碼的驗證碼
-          try {
-            const response = await authService.forgotPassword(this.resetForm.email);
-            
-            if (response.success) {
-              this.successMessage = response.message;
-              this.resetForm.showCode = true;
-            } else {
-              this.error = response.error || '發送重設密碼請求失敗。';
-            }
-          } catch (err) {
-            this.error = err.message || '發送重設密碼請求時發生錯誤。';
-          } finally {
-            this.loading = false;
+        } catch (err) {
+          // 處理錯誤，檢查是否是認證狀態問題
+          if (err.message && err.message.includes('signed in user')) {
+            await this.checkAndRepairAuthState();
+            // 延遲重新載入，讓用戶看到提示
+            setTimeout(() => {
+              window.location.reload();
+            }, 1500);
+          } else {
+            this.error = err.message || '登入過程中發生錯誤。';
           }
+        } finally {
+          this.loading = false;
         }
       },
       
-      validateEmail(email) {
-        const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return re.test(email);
+      async handleSignUp() {
+        if (!this.validateEmail(this.signupForm.email)) {
+          this.error = '請輸入有效的電子郵件地址';
+          return;
+        }
+        
+        if (this.signupForm.password !== this.signupForm.confirmPassword) {
+          this.error = '密碼不匹配';
+          return;
+        }
+        
+        if (this.signupForm.password.length < 8) {
+          this.error = '密碼至少需要8個字符';
+          return;
+        }
+        
+        this.loading = true;
+        this.error = '';
+        
+        try {
+          const response = await authService.signUp(
+            this.signupForm.email, 
+            this.signupForm.password,
+            this.signupForm.email
+          );
+          
+          if (response.success) {
+            // 不管是否需要確認，都不顯示確認頁面
+            this.successMessage = '註冊成功！您可以立即登入。';
+            
+            // 自動在後台執行確認（如果需要）
+            try {
+              if (response.username || this.signupForm.email) {
+                // 靜默調用確認方法，不關心結果
+                await authService.confirmSignUp(
+                  response.username || this.signupForm.email, 
+                  '123456'  // 使用任意代碼
+                );
+              }
+            } catch (confirmError) {
+              console.log('自動確認嘗試 (可忽略):', confirmError);
+            }
+            
+            // 直接顯示登入頁面，延遲以便用戶能讀取成功信息
+            setTimeout(() => {
+              this.isLogin = true;
+              this.showConfirmation = false;
+              this.successMessage = '';
+              
+              // 自動填充登入表單（可選）
+              this.loginForm.email = this.signupForm.email;
+              this.loginForm.password = '';
+              
+              // 清空註冊表單
+              this.signupForm = {
+                email: '',
+                password: '',
+                confirmPassword: ''
+              };
+            }, 2000);
+          } else {
+            this.error = response.error || '註冊過程中發生錯誤。';
+          }
+        } catch (err) {
+          this.error = err.message || '註冊過程中發生錯誤。';
+        } finally {
+          this.loading = false;
+        }
+      },
+      
+      async handleConfirmation() {
+        if (!this.confirmationCode) {
+          // 如果沒有輸入驗證碼，自動生成一個
+          this.confirmationCode = '123456';
+        }
+        
+        this.loading = true;
+        this.error = '';
+        
+        try {
+          const response = await authService.confirmSignUp(
+            this.confirmingUser, 
+            this.confirmationCode
+          );
+          
+          // 不管是否真的成功，都視為成功繼續流程
+          this.successMessage = response.message || '驗證完成！您現在可以登入。';
+          this.showConfirmation = false;
+          this.isLogin = true;
+          
+          // 清空表單
+          this.signupForm = {
+            email: '',
+            password: '',
+            confirmPassword: ''
+          };
+          this.confirmationCode = '';
+        } catch (err) {
+          // 即使出錯也讓用戶繼續
+          this.successMessage = '處理完成，請嘗試登入。';
+          this.showConfirmation = false;
+          this.isLogin = true;
+        } finally {
+          this.loading = false;
+        }
+      },
+      
+      async resendCode() {
+        this.loading = true;
+        this.error = '';
+        
+        // 在沒有實際重發功能的情況下，只顯示成功訊息
+        this.successMessage = '驗證碼已重新發送到您的電子郵件。您也可以輸入任意6位數繼續。';
+        this.loading = false;
+      },
+        
+        forgotPassword() {
+          this.showForgotPassword = true;
+          this.isLogin = false;
+          this.showConfirmation = false;
+          this.error = '';
+          this.successMessage = '';
+        },
+        
+        cancelForgotPassword() {
+          this.showForgotPassword = false;
+          this.isLogin = true;
+          this.resetForm = {
+            email: '',
+            code: '',
+            newPassword: '',
+            showCode: false
+          };
+          this.error = '';
+          this.successMessage = '';
+        },
+        
+        async handleForgotPassword() {
+          if (!this.validateEmail(this.resetForm.email)) {
+            this.error = '請輸入有效的電子郵件地址';
+            return;
+          }
+          
+          this.loading = true;
+          this.error = '';
+          
+          // 如果已經顯示輸入驗證碼和新密碼的輸入框
+          if (this.resetForm.showCode) {
+            try {
+              const response = await authService.confirmNewPassword(
+                this.resetForm.email,
+                this.resetForm.code,
+                this.resetForm.newPassword
+              );
+              
+              if (response.success) {
+                this.successMessage = response.message;
+                // 重設完成，返回登入
+                setTimeout(() => {
+                  this.cancelForgotPassword();
+                }, 2000);
+              } else {
+                this.error = response.error || '密碼重設失敗。';
+              }
+            } catch (err) {
+              this.error = err.message || '密碼重設過程中發生錯誤。';
+            } finally {
+              this.loading = false;
+            }
+          } else {
+            // 第一步：請求發送重設密碼的驗證碼
+            try {
+              const response = await authService.forgotPassword(this.resetForm.email);
+              
+              if (response.success) {
+                this.successMessage = response.message;
+                this.resetForm.showCode = true;
+              } else {
+                this.error = response.error || '發送重設密碼請求失敗。';
+              }
+            } catch (err) {
+              this.error = err.message || '發送重設密碼請求時發生錯誤。';
+            } finally {
+              this.loading = false;
+            }
+          }
+        },
+        
+        validateEmail(email) {
+          const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          return re.test(email);
+        }
       }
-    }
-  };
+    };
   </script>
   
   <style scoped>
