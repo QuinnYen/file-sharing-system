@@ -1,5 +1,6 @@
 // src/services/s3-service-direct.js
 import AWS from 'aws-sdk';
+// 移除未使用的導入
 import authService from './auth-service';
 
 // 獲取憑證 - 現在支援已驗證和未驗證用戶
@@ -19,11 +20,11 @@ const getCredentials = async () => {
   }
   
   // 使用未驗證身份
-  AWS.config.region = 'ap-northeast-1'; // 您的區域
+  AWS.config.region = 'ap-southeast-2'; // 您的區域
   
   // 設置身份池 ID
   AWS.config.credentials = new AWS.CognitoIdentityCredentials({
-    IdentityPoolId: 'ap-northeast-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', // 替換為您的身份池 ID
+    IdentityPoolId: 'ap-southeast-2:c63d43af-25ab-415c-9e8a-0d392b96951a', // 替換為您的身份池 ID
   });
   
   // 刷新憑證
@@ -40,7 +41,7 @@ const getCredentials = async () => {
 const createS3Client = async () => {
   await getCredentials();
   return new AWS.S3({
-    region: 'ap-northeast-1',
+    region: 'ap-southeast-2',
     signatureVersion: 'v4'
   });
 };

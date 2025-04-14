@@ -17,18 +17,23 @@ const actions = {
   async loadUserState() {
     state.loading = true;
     try {
-      const { success, user, isAuthenticated } = await authService.getCurrentUser();
+      const { success, user, userInfo, isAuthenticated } = await authService.getCurrentUser();
       
       if (success && isAuthenticated) {
         state.isAuthenticated = true;
         state.user = user;
         
-        // 獲取用戶詳細信息
-        state.userInfo = {
-          username: user.username,
-          email: user.attributes.email,
-          emailVerified: user.attributes.email_verified === 'true'
-        };
+        // 使用返回的 userInfo 或創建默認值
+        if (userInfo) {
+          state.userInfo = userInfo;
+        } else if (user) {
+          // 從用戶對象創建 userInfo
+          state.userInfo = {
+            username: user.username,
+            email: user.attributes?.email || user.username, // 防止 undefined
+            emailVerified: true // 默認為已驗證
+          };
+        }
       } else {
         state.isAuthenticated = false;
         state.user = null;
@@ -50,22 +55,28 @@ const actions = {
     state.error = null;
     
     try {
-      const { success, user, error } = await authService.signIn(username, password);
+      const { success, user, error, needConfirmation } = await authService.signIn(username, password);
       
       if (success) {
         state.isAuthenticated = true;
         state.user = user;
         
-        // 獲取用戶詳細信息
+        // 獲取用戶詳細信息，確保有合理的默認值
         state.userInfo = {
           username: user.username,
-          email: user.attributes.email,
-          emailVerified: user.attributes.email_verified === 'true'
+          email: user.attributes?.email || username, // 使用用戶名作為預設郵箱
+          emailVerified: true // 默認已驗證
         };
         
         return { success: true };
       } else {
         state.error = error;
+        
+        // 如果需要確認，添加這個標誌
+        if (needConfirmation) {
+          return { success: false, error, needConfirmation: true, username };
+        }
+        
         return { success: false, error };
       }
     } catch (err) {
