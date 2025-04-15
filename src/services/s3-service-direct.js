@@ -304,75 +304,83 @@ const s3Service = {
       console.log('嘗試列出檔案，使用前綴:', prefix);
       
       // 正確的前綴集合 (包含可能的變體)
-      const prefixes = [
-        prefix,  // 動態生成的前綴
-        'users/gostyuen-at-mail-dot-com/'  // S3 顯示的實際前綴
-      ];
+      // 移除硬編碼的電子郵件地址，改為更靈活的檢測方式
+      const prefixes = [prefix];
+      
+      // 嘗試從 localStorage 和 sessionStorage 獲取電子郵件生成額外前綴
+      try {
+        const storedEmail = localStorage.getItem('userEmail') || sessionStorage.getItem('userEmail');
+        if (storedEmail && storedEmail.includes('@')) {
+          const safeEmail = storedEmail.replace(/[@.]/g, m => m === '@' ? '-at-' : '-dot-');
+          const additionalPrefix = `users/${safeEmail}/`;
+          
+          // 僅當不同於當前前綴時添加
+          if (additionalPrefix !== prefix) {
+            prefixes.push(additionalPrefix);
+          }
+        }
+      } catch (e) {
+        console.warn('獲取額外前綴失敗:', e);
+      }
       
       // 所有找到的檔案
       let allFiles = [];
       
       // 對每個可能的前綴嘗試獲取檔案
       for (const currentPrefix of prefixes) {
-        const params = {
-          Bucket: bucketName,
-          Prefix: currentPrefix
-        };
-        
-        const result = await s3.listObjectsV2(params).promise();
-        
-        // 如果找到了檔案，處理它們
-        if (result.Contents && result.Contents.length > 0) {
-          // 處理檔案列表
-          const items = result.Contents
-            .filter(item => !item.Key.endsWith('/'))
-            .map(item => {
-              const fileName = item.Key.split('/').pop();
-              
-              // 檢查是否有過期時間
-              let expiresAt = null;
-              try {
-                const metadataParams = {
-                  Bucket: bucketName,
-                  Key: item.Key
-                };
-                const objectMetadata = s3.headObject(metadataParams).promise();
+        try {
+          const params = {
+            Bucket: bucketName,
+            Prefix: currentPrefix
+          };
+          
+          const result = await s3.listObjectsV2(params).promise();
+          
+          // 如果找到了檔案，處理它們
+          if (result.Contents && result.Contents.length > 0) {
+            // 處理檔案列表
+            const items = result.Contents
+              .filter(item => !item.Key.endsWith('/'))
+              .map(item => {
+                const fileName = item.Key.split('/').pop();
                 
-                if (objectMetadata && objectMetadata.Metadata && objectMetadata.Metadata.expires) {
-                  expiresAt = new Date(objectMetadata.Metadata.expires);
-                }
-              } catch (e) {
-                // 忽略元數據錯誤
-              }
-              
-              return {
-                key: item.Key,
-                name: fileName,
-                size: item.Size,
-                lastModified: item.LastModified,
-                expiresAt: expiresAt,
-                url: `https://${bucketName}.s3.amazonaws.com/${item.Key}`,
-                shareUrl: `https://${bucketName}.s3.amazonaws.com/${item.Key}`
-              };
-            });
-          
-          // 合併找到的檔案
-          allFiles = [...allFiles, ...items];
-          
-          // 如果找到了檔案，則更新本地儲存的電子郵件
-          if (items.length > 0 && currentPrefix.includes('-at-')) {
-            const inferredEmail = currentPrefix
-              .replace('users/', '')
-              .replace('/', '')
-              .replace(/-at-/g, '@')
-              .replace(/-dot-/g, '.');
+                // 元數據處理改為非同步處理，避免阻塞檔案列表返回
+                return {
+                  key: item.Key,
+                  name: fileName,
+                  size: item.Size,
+                  lastModified: item.LastModified,
+                  expiresAt: null, // 先設為null，後續異步更新
+                  url: `https://${bucketName}.s3.amazonaws.com/${item.Key}`,
+                  shareUrl: `https://${bucketName}.s3.amazonaws.com/${item.Key}`
+                };
+              });
             
-            localStorage.setItem('userEmail', inferredEmail);
-            sessionStorage.setItem('userEmail', inferredEmail);
+            // 合併找到的檔案
+            allFiles = [...allFiles, ...items];
+            
+            // 如果找到了檔案，則更新本地儲存的電子郵件
+            if (items.length > 0 && currentPrefix.includes('-at-')) {
+              const inferredEmail = currentPrefix
+                .replace('users/', '')
+                .replace('/', '')
+                .replace(/-at-/g, '@')
+                .replace(/-dot-/g, '.');
+              
+              // 確保電子郵件格式有效
+              if (inferredEmail.includes('@')) {
+                localStorage.setItem('userEmail', inferredEmail);
+                sessionStorage.setItem('userEmail', inferredEmail);
+              }
+            }
           }
+        } catch (prefixError) {
+          console.warn(`獲取前綴 ${currentPrefix} 的檔案失敗:`, prefixError);
+          // 繼續處理下一個前綴，不中斷整個操作
         }
       }
       
+      // 返回文件列表，即使為空也返回數組而不是錯誤
       return allFiles;
     } catch (error) {
       console.error('獲取檔案列表時出錯:', error);

@@ -367,6 +367,18 @@ export default {
     try {
       const currentUser = await getCurrentUser();
       
+      // 嘗試獲取本地存儲的電子郵件，這是最可靠的來源
+      let preferredEmail = null;
+      try {
+        const storedEmail = localStorage.getItem('userEmail');
+        if (storedEmail && storedEmail.includes('@')) {
+          preferredEmail = storedEmail;
+          console.log('使用本地存儲的電子郵件:', preferredEmail);
+        }
+      } catch (e) {
+        console.warn('獲取本地存儲電子郵件失敗:', e);
+      }
+      
       // 獲取用戶屬性
       let attributes = {};
       try {
@@ -374,18 +386,36 @@ export default {
       } catch (attrError) {
         console.warn('獲取用戶屬性失敗，使用預設值:', attrError);
         // 設置預設屬性避免 undefined 錯誤
-        attributes = { email: currentUser.username };
+        attributes = { email: preferredEmail || currentUser.username };
+      }
+      
+      // 確保我們使用最好的電子郵件來源
+      const bestEmail = preferredEmail || attributes.email || 
+                      (currentUser.username.includes('@') ? currentUser.username : null);
+      
+      // 如果找到了合適的電子郵件，保存到本地存儲
+      if (bestEmail && bestEmail.includes('@')) {
+        try {
+          localStorage.setItem('userEmail', bestEmail);
+          sessionStorage.setItem('userEmail', bestEmail);
+          console.log('更新本地存儲的電子郵件:', bestEmail);
+        } catch (e) {
+          console.warn('保存電子郵件到本地存儲失敗:', e);
+        }
       }
       
       return {
         success: true,
         user: {
           username: currentUser.username,
-          attributes: attributes
+          attributes: {
+            ...attributes,
+            email: bestEmail || attributes.email || currentUser.username
+          }
         },
         userInfo: {
           username: currentUser.username,
-          email: attributes.email || currentUser.username,
+          email: bestEmail || attributes.email || currentUser.username,
           emailVerified: true // 預設為已驗證
         },
         isAuthenticated: true

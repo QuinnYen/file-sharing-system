@@ -61,19 +61,26 @@ export default {
       return authState.state;
     },
     userEmail() {
-      const email = this.authState.userInfo?.email || '用戶';
-      
-      // 如果有電子郵件，保存到 localStorage 和 sessionStorage
-      if (email && email.includes('@')) {
-        try {
-          localStorage.setItem('userEmail', email);
-          sessionStorage.setItem('userEmail', email);
-        } catch (e) {
-          console.warn('保存電子郵件到儲存失敗:', e);
-        }
+      // 首先檢查本地存儲，這是最可靠的來源
+      const storedEmail = localStorage.getItem('userEmail');
+      if (storedEmail && storedEmail.includes('@')) {
+        return storedEmail;
       }
       
-      return email;
+      // 然後檢查 authState 中的 userInfo
+      const email = this.authState.userInfo?.email;
+      if (email && email.includes('@')) {
+        return email;
+      }
+      
+      // 最後檢查 user.attributes
+      const attrEmail = this.authState.user?.attributes?.email;
+      if (attrEmail && attrEmail.includes('@')) {
+        return attrEmail;
+      }
+      
+      // 如果所有來源都沒有有效的電子郵件，則返回通用名稱
+      return '使用者';
     }
   },
   methods: {

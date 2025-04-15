@@ -219,7 +219,16 @@
     // 添加 created 生命週期鉤子，頁面加載時自動修復
     async created() {
       try {
-        // 在頁面載入時自動嘗試清除可能的舊認證狀態
+        // 先檢查是否已經登入，如果已登入則不進行清除
+        const currentUser = await authService.getCurrentUser();
+        if (currentUser.success && currentUser.isAuthenticated) {
+          console.log('檢測到用戶已登入，不執行清除操作');
+          // 直接跳轉到首頁
+          this.$router.push('/');
+          return;
+        }
+        
+        // 僅對未登入用戶清除可能的舊認證狀態
         await authService.signOut().catch(err => {
           console.log('預清除認證狀態 (可忽略錯誤):', err);
         });

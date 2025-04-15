@@ -17,43 +17,64 @@ const actions = {
   async loadUserState() {
     state.loading = true;
     try {
+      // 嘗試從本地存儲先恢復一些基本狀態
+      let recoveredEmail = null;
+      try {
+        const storedEmail = localStorage.getItem('userEmail');
+        if (storedEmail && storedEmail.includes('@')) {
+          console.log('從本地存儲恢復用戶電子郵件:', storedEmail);
+          recoveredEmail = storedEmail;
+          // 臨時設置為已認證，避免閃爍登出
+          state.isAuthenticated = true;
+        }
+      } catch (e) {
+        console.warn('從本地存儲恢復狀態失敗:', e);
+      }
+
       const { success, user, userInfo, isAuthenticated } = await authService.getCurrentUser();
       
       if (success && isAuthenticated) {
         state.isAuthenticated = true;
         state.user = user;
         
-        // 使用返回的 userInfo 或創建默認值
-        if (userInfo) {
+        // 建立或更新 userInfo，確保電子郵件正確
+        if (recoveredEmail) {
+          // 如果有從本地恢復的電子郵件，優先使用它
+          state.userInfo = {
+            ...(userInfo || {}),
+            email: recoveredEmail,
+            username: user?.username || recoveredEmail,
+            emailVerified: true
+          };
+        } else if (userInfo) {
+          // 嘗試使用 userInfo 中的電子郵件
           state.userInfo = userInfo;
           
-          // 如果有用戶信息且有電子郵件，保存到本地儲存
-          if (userInfo.email) {
-            try {
-              localStorage.setItem('userEmail', userInfo.email);
-              sessionStorage.setItem('userEmail', userInfo.email);
-              console.log('已保存 userInfo 電子郵件到本地儲存:', userInfo.email);
-            } catch (e) {
-              console.warn('保存 userInfo 電子郵件到本地儲存失敗:', e);
+          // 如果 userInfo 中的電子郵件看起來不像電子郵件（可能是 UUID），
+          // 嘗試從 user.attributes 或其他地方獲取
+          if (!userInfo.email || !userInfo.email.includes('@')) {
+            const emailFromAttrs = user?.attributes?.email;
+            if (emailFromAttrs && emailFromAttrs.includes('@')) {
+              state.userInfo.email = emailFromAttrs;
             }
           }
         } else if (user) {
           // 從用戶對象創建 userInfo
           state.userInfo = {
             username: user.username,
-            email: user.attributes?.email || user.username, // 防止 undefined
+            email: user.attributes?.email || recoveredEmail || user.username, // 使用最好的電子郵件來源 
             emailVerified: true // 默認為已驗證
           };
-          
-          // 如果從 user 對象獲取到電子郵件，保存到本地儲存
-          if (user.attributes && user.attributes.email) {
-            try {
-              localStorage.setItem('userEmail', user.attributes.email);
-              sessionStorage.setItem('userEmail', user.attributes.email);
-              console.log('已保存 user.attributes 電子郵件到本地儲存:', user.attributes.email);
-            } catch (e) {
-              console.warn('保存 user.attributes 電子郵件到本地儲存失敗:', e);
-            }
+        }
+        
+        // 確保我們始終有一個合理的電子郵件，保存到本地儲存
+        if (state.userInfo && state.userInfo.email && state.userInfo.email.includes('@')) {
+          try {
+            localStorage.setItem('userEmail', state.userInfo.email);
+            sessionStorage.setItem('userEmail', state.userInfo.email);
+            console.log('已保存用戶電子郵件到本地儲存:', state.userInfo.email);
+          } catch (e) {
+            console.warn('保存電子郵件到儲存失敗:', e);
           }
         }
       } else {
