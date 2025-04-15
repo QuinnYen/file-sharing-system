@@ -199,11 +199,88 @@ export default {
       };
     }
   },
-  
+
+  // 獲取用戶詳細資訊，包括電子郵件
+  async getUserDetails() {
+    try {
+      // 如果已有 userAttributes，直接返回
+      try {
+        const attributes = await fetchUserAttributes();
+        if (attributes && attributes.email) {
+          return {
+            success: true,
+            email: attributes.email
+          };
+        }
+      } catch (e) {
+        console.log('無法從當前會話獲取用戶屬性:', e);
+      }
+      
+      // 從頁面元素或其他來源嘗試獲取電子郵件
+      try {
+        // 檢查頁面上是否有用戶電子郵件資訊
+        const userEmailElement = document.querySelector('.user-email') || 
+                                 document.querySelector('[data-user-email]');
+        
+        if (userEmailElement) {
+          const email = userEmailElement.textContent || 
+                       userEmailElement.getAttribute('data-user-email');
+          
+          if (email && email.includes('@')) {
+            console.log('從頁面元素獲取到電子郵件:', email);
+            return {
+              success: true,
+              email: email
+            };
+          }
+        }
+      } catch (e) {
+        console.warn('從頁面元素獲取電子郵件失敗:', e);
+      }
+      
+      // 從 sessionStorage 嘗試獲取
+      try {
+        const storedEmail = sessionStorage.getItem('userEmail');
+        if (storedEmail && storedEmail.includes('@')) {
+          console.log('從 sessionStorage 獲取到電子郵件:', storedEmail);
+          return {
+            success: true,
+            email: storedEmail
+          };
+        }
+      } catch (e) {
+        console.warn('從 sessionStorage 獲取電子郵件失敗:', e);
+      }
+      
+      // 無法獲取詳細資訊
+      return {
+        success: false,
+        error: '無法獲取用戶詳細資訊'
+      };
+    } catch (error) {
+      console.error('獲取用戶詳細資訊失敗:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  },
+
   // 登入
   async signIn(username, password) {
     try {
       console.log('嘗試登入用戶:', username);
+      
+      // 保存電子郵件到本地儲存
+      if (username && username.includes('@')) {
+        try {
+          localStorage.setItem('userEmail', username);
+          sessionStorage.setItem('userEmail', username);
+          console.log('已保存電子郵件到本地儲存:', username);
+        } catch (e) {
+          console.warn('保存電子郵件到本地儲存失敗:', e);
+        }
+      }
       
       const signInResult = await signIn({
         username,
@@ -217,6 +294,17 @@ export default {
       try {
         userAttributes = await fetchUserAttributes();
         console.log('獲取到用戶屬性:', userAttributes);
+        
+        // 在獲取用戶屬性後，如果有電子郵件，保存到本地儲存
+        if (userAttributes && userAttributes.email) {
+          try {
+            localStorage.setItem('userEmail', userAttributes.email);
+            sessionStorage.setItem('userEmail', userAttributes.email);
+            console.log('已保存用戶屬性電子郵件到本地儲存:', userAttributes.email);
+          } catch (e) {
+            console.warn('保存用戶屬性電子郵件到本地儲存失敗:', e);
+          }
+        }
       } catch (attrError) {
         console.warn('獲取用戶屬性失敗，但繼續流程:', attrError);
       }
@@ -225,7 +313,7 @@ export default {
       const user = {
         username: username,
         attributes: {
-          email: username, // 默認使用用戶名作為郵箱
+          email: username.includes('@') ? username : null, // 默認使用用戶名作為郵箱
           ...userAttributes // 覆蓋任何實際獲得的屬性
         }
       };

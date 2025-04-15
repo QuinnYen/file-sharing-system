@@ -26,6 +26,17 @@ const actions = {
         // 使用返回的 userInfo 或創建默認值
         if (userInfo) {
           state.userInfo = userInfo;
+          
+          // 如果有用戶信息且有電子郵件，保存到本地儲存
+          if (userInfo.email) {
+            try {
+              localStorage.setItem('userEmail', userInfo.email);
+              sessionStorage.setItem('userEmail', userInfo.email);
+              console.log('已保存 userInfo 電子郵件到本地儲存:', userInfo.email);
+            } catch (e) {
+              console.warn('保存 userInfo 電子郵件到本地儲存失敗:', e);
+            }
+          }
         } else if (user) {
           // 從用戶對象創建 userInfo
           state.userInfo = {
@@ -33,6 +44,17 @@ const actions = {
             email: user.attributes?.email || user.username, // 防止 undefined
             emailVerified: true // 默認為已驗證
           };
+          
+          // 如果從 user 對象獲取到電子郵件，保存到本地儲存
+          if (user.attributes && user.attributes.email) {
+            try {
+              localStorage.setItem('userEmail', user.attributes.email);
+              sessionStorage.setItem('userEmail', user.attributes.email);
+              console.log('已保存 user.attributes 電子郵件到本地儲存:', user.attributes.email);
+            } catch (e) {
+              console.warn('保存 user.attributes 電子郵件到本地儲存失敗:', e);
+            }
+          }
         }
       } else {
         state.isAuthenticated = false;

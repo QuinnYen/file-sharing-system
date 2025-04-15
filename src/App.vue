@@ -61,7 +61,19 @@ export default {
       return authState.state;
     },
     userEmail() {
-      return this.authState.userInfo?.email || '用戶';
+      const email = this.authState.userInfo?.email || '用戶';
+      
+      // 如果有電子郵件，保存到 localStorage 和 sessionStorage
+      if (email && email.includes('@')) {
+        try {
+          localStorage.setItem('userEmail', email);
+          sessionStorage.setItem('userEmail', email);
+        } catch (e) {
+          console.warn('保存電子郵件到儲存失敗:', e);
+        }
+      }
+      
+      return email;
     }
   },
   methods: {

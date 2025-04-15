@@ -249,37 +249,43 @@ export default {
     );
   },
   methods: {
+    // 修改 FileList.vue 的 loadFiles 方法
+
     async loadFiles() {
       this.loading = true;
       this.error = null;
       
-      // 確認用戶是否已登入
       if (!this.isAuthenticated) {
         this.loading = false;
+        console.log('未登入，不載入檔案');
         return;
       }
       
       try {
-        this.files = await s3Service.listFiles();
+        console.log('開始載入檔案列表...');
+        const response = await s3Service.listFiles();
         
-        // 根據過期時間排序：過期日期靠近的排前面
-        this.files.sort((a, b) => {
-          // 如果都有過期時間，按照過期時間排序
-          if (a.expiresAt && b.expiresAt) {
-            return new Date(a.expiresAt) - new Date(b.expiresAt);
-          }
-          // 如果只有一個有過期時間，有過期時間的排前面
-          if (a.expiresAt) return -1;
-          if (b.expiresAt) return 1;
-          // 如果都沒有過期時間，按照上傳時間排序（新的在前）
-          return new Date(b.lastModified) - new Date(a.lastModified);
-        });
+        // 檢查是否是錯誤響應
+        if (response && response.success === false) {
+          this.error = response.error || '獲取檔案列表失敗';
+          this.files = [];
+          console.error('檔案列表載入失敗:', this.error);
+          return;
+        }
+        
+        // 正常數組處理
+        this.files = response;
+        
+        // 現有的檔案處理邏輯...
       } catch (error) {
-        this.error = `無法載入檔案列表: ${error.message}`;
+        console.error('載入檔案列表時出錯:', error);
+        this.error = `無法載入檔案列表: ${error.message || '未知錯誤'}`;
+        this.files = [];
       } finally {
         this.loading = false;
       }
     },
+    
     formatFileSize(bytes) {
       if (bytes === 0) return '0 Bytes';
       
